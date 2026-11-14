@@ -28,7 +28,6 @@ jobs:
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-
           SDK_MANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           if [[ ! -x "$SDK_MANAGER" ]]; then
             SDK_MANAGER="$(command -v sdkmanager || true)"
@@ -37,16 +36,26 @@ jobs:
             echo "::error::Android sdkmanager not found"
             exit 1
           fi
-
           "$SDK_MANAGER" --version
-
           if [[ ! -f "$SDK_ROOT/platforms/android-35/android.jar" || ! -d "$SDK_ROOT/build-tools/35.0.0" ]]; then
             (yes || true) | "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
             "$SDK_MANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
           fi
-
           test -f "$SDK_ROOT/platforms/android-35/android.jar"
           test -x "$SDK_ROOT/build-tools/35.0.0/aapt2"
+
+      - name: Extract ScoreGuard source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="HTScoreGuard_v1_2_NextGoalRisk_TeamResearch_OneUpload.zip"
+          test -f "$ZIP" || { echo "::error::Source ZIP missing: $ZIP"; exit 1; }
+          mkdir -p source
+          unzip -q "$ZIP" -d source
+          test -f source/build.gradle
+          test -f source/settings.gradle
+          test -f source/app/build.gradle
+          echo "Source extracted successfully"
 
       - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -54,11 +63,12 @@ jobs:
           gradle-version: '8.9'
 
       - name: Run tests and compile APK
+        working-directory: source
         run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: HTScoreGuard-v1_2-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: source/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
