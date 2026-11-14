@@ -7,33 +7,58 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 35
+      - name: Verify Android SDK 35
+        shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
 
-      - uses: gradle/actions/setup-gradle@v4
+          SDK_MANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$SDK_MANAGER" ]]; then
+            SDK_MANAGER="$(command -v sdkmanager || true)"
+          fi
+          if [[ -z "$SDK_MANAGER" || ! -x "$SDK_MANAGER" ]]; then
+            echo "::error::Android sdkmanager not found"
+            exit 1
+          fi
+
+          "$SDK_MANAGER" --version
+
+          if [[ ! -f "$SDK_ROOT/platforms/android-35/android.jar" || ! -d "$SDK_ROOT/build-tools/35.0.0" ]]; then
+            (yes || true) | "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+            "$SDK_MANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
+          fi
+
+          test -f "$SDK_ROOT/platforms/android-35/android.jar"
+          test -x "$SDK_ROOT/build-tools/35.0.0/aapt2"
+
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Unit tests and APK
-        run: gradle --no-daemon testDebugUnitTest assembleDebug
+      - name: Run tests and compile APK
+        run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
         with:
           name: HTScoreGuard-v1_2-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
