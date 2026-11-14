@@ -28,52 +28,54 @@ jobs:
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           SDK_MANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          if [[ ! -x "$SDK_MANAGER" ]]; then
-            SDK_MANAGER="$(command -v sdkmanager || true)"
-          fi
+          if [[ ! -x "$SDK_MANAGER" ]]; then SDK_MANAGER="$(command -v sdkmanager || true)"; fi
           if [[ -z "$SDK_MANAGER" || ! -x "$SDK_MANAGER" ]]; then
             echo "::error::Android sdkmanager not found"
             exit 1
           fi
           "$SDK_MANAGER" --version
-          if [[ ! -f "$SDK_ROOT/platforms/android-35/android.jar" || ! -d "$SDK_ROOT/build-tools/35.0.0" ]]; then
+          if [[ ! -f "$SDK_ROOT/platforms/android-35/android.jar" || ! -x "$SDK_ROOT/build-tools/35.0.0/aapt2" ]]; then
             (yes || true) | "$SDK_MANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
             "$SDK_MANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
           fi
           test -f "$SDK_ROOT/platforms/android-35/android.jar"
           test -x "$SDK_ROOT/build-tools/35.0.0/aapt2"
 
-      - name: Extract ScoreGuard source ZIP
+      - name: Locate Android project or extract uploaded ZIP
         shell: bash
         run: |
           set -euo pipefail
-          ZIP="HTScoreGuard_v1_2_NextGoalRisk_TeamResearch_OneUpload.zip"
-          test -f "$ZIP" || { echo "::error::Source ZIP missing: $ZIP"; exit 1; }
-          mkdir -p source
-          unzip -q "$ZIP" -d source
-          test -f source/build.gradle
-          test -f source/settings.gradle
-          test -f source/app/build.gradle
-          echo "Source extracted successfully"
-
-      - name: Enable AndroidX in extracted project
-        shell: bash
-        run: |
-          printf 'android.useAndroidX=true\n' > source/gradle.properties
-          cat source/gradle.properties
+          if [[ -f settings.gradle && -f app/build.gradle ]]; then
+            PROJECT_DIR='.'
+          else
+            ZIP='HTScoreGuard_v1_3_FixtureID_OCR_FIXED_OneUpload.zip'
+            if [[ ! -f "$ZIP" ]]; then
+              echo "::error::Please upload and commit $ZIP at repository root"
+              exit 1
+            fi
+            mkdir -p source
+            unzip -q -o "$ZIP" -d source
+            PROJECT_DIR='source'
+          fi
+          test -f "$PROJECT_DIR/settings.gradle"
+          test -f "$PROJECT_DIR/build.gradle"
+          test -f "$PROJECT_DIR/app/build.gradle"
+          echo 'android.useAndroidX=true' >> "$PROJECT_DIR/gradle.properties"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Gradle project: $PROJECT_DIR"
 
       - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Run tests and compile APK
-        working-directory: source
+      - name: Tests and APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: gradle --no-daemon --stacktrace testDebugUnitTest assembleDebug
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: HTScoreGuard-v1_2-debug-apk
-          path: source/app/build/outputs/apk/debug/app-debug.apk
+          name: HTScoreGuard-v1_3-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
