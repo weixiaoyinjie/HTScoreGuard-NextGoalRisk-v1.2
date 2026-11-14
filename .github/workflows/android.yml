@@ -1,4 +1,3 @@
-
 name: Build standalone ScoreGuard APK
 
 on:
@@ -56,6 +55,12 @@ jobs:
           test -f source/settings.gradle
           test -f source/app/build.gradle
           echo "Source extracted successfully"
+
+      - name: Enable AndroidX in extracted project
+        shell: bash
+        run: |
+          printf 'android.useAndroidX=true\n' > source/gradle.properties
+          cat source/gradle.properties
 
       - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
